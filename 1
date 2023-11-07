@@ -1,0 +1,125 @@
+import numpy as np
+import sys
+import csv
+from numpy.linalg import inv
+
+
+class data_manager():
+    def __init__(self):
+        self.data = {}
+
+    def data_split(self,X, Y, rate):
+        num = int(len(X) * (1 - rate))
+        return X[:num], Y[:num], X[num:], Y[num:]
+
+    def read(self, name, path):
+        with open(path, newline='') as csvfile:
+            rows = np.array(list(csv.reader(csvfile))[1:], dtype=float)
+            if name == 'X_train':
+                self.mean = np.mean(rows, axis=0).reshape(1, -1)
+                self.std = np.std(rows, axis=0).reshape(1, -1)
+                self.theta = np.ones((rows.shape[1] + 1, 1), dtype=float)
+                for i in range(rows.shape[0]):
+                    rows[i, :] =(rows[i, :]-self.mean)/self.std
+
+
+            elif name == 'X_test':
+                for i in range(rows.shape[0]):
+                    rows[i, :] =(rows[i, :]-self.mean)/self.std
+
+            self.data[name] = rows
+
+    def sigmod(self, x):
+        z = np.dot(x,self.w) +self.b
+        return np.clip(1 / (1 + np.exp(-z)), 1e-8, 1 - (1e-8))
+
+    def Adagrad(self, x_train, y_train):
+        w_g = np.ones((x_train.shape[1], 1))
+        b_g = np.zeros(1)
+
+        iteration = 100
+        lr = 0.1
+
+
+        for i in range(iteration):
+            #y = self.sigmod(x_train)
+            #按块进行迭代
+            size=10     #块大小
+            for idx in range(int(np.floor(x_train.shape[0] / size))):
+                X = x_train[idx * size:(idx + 1) * size]
+                Y = y_train[idx * size:(idx + 1) * size]
+                y=self.sigmod(X)
+
+                w_grad = -2 * np.dot(X.T,(Y - y))
+                b_grad = -2 * np.sum(Y - y)
+
+                w_g += w_grad ** 2
+                b_g += b_grad ** 2
+                self.w = self.w - lr * w_grad / np.sqrt(w_g)
+                self.b = self.b - lr * b_grad / np.sqrt(b_g)
+
+            #加入正则项
+            # lam=10
+            # regularization=lam*(self.w**2)
+            # 正则化损失, scalar
+            # w_grad = -2 * np.dot(x_train.T,(y_train - y))+regularization
+            # b_grad = -2 * np.sum(y_train - y)
+            #
+            # w_g += w_grad ** 2
+            # b_g += b_grad ** 2
+            # self.w = self.w - lr * w_grad / np.sqrt(w_g)
+            # self.b = self.b - lr * b_grad / np.sqrt(b_g)
+
+    def cal_Rate(self):
+        #初始化w和b
+        self.w = np.full((self.data['X_train'].shape[1], 1), 1)
+        self.b = np.zeros(1)
+        #对训练集进行分割
+        X_train,Y_train,X_test,Y_test=self.data_split(self.data['X_train'],self.data['Y_train'],0.25)
+        #开始迭代
+        self.Adagrad(X_train, Y_train)
+        result = self.sigmod(X_test)
+        answer = self.predict(result)
+        rate = 1 - np.mean(np.abs(Y_test - answer))
+        print("正确率 :", rate)
+
+        #计算完成后再次利用分割的测试集训练一次
+        result = self.sigmod(self.data['X_train'])
+        answer = self.predict(result)
+        rate = 1 - np.mean(np.abs(self.data['Y_train'] - answer))
+        print("正确率 :", rate)
+        # for i in range(0, 20):
+        #     print(self.data['Y_train'][i], answer[i])
+
+    def func(self, x):
+        arr = np.empty([x.shape[0], 1], dtype=float)
+        for i in range(x.shape[0]):
+            z = x[i, :].dot(self.w) + self.b
+            z *= (-1)
+            arr[i][0] = 1 / (1 + np.exp(z))
+        return np.clip(arr, 1e-8, 1 - (1e-8))
+
+
+    def predict(self, x):
+        ans = np.ones([x.shape[0], 1], dtype=int)
+        for i in range(x.shape[0]):
+            if x[i] < 0.5:
+                ans[i] = 0
+        return ans
+
+    def write_file(self, path):
+        result = self.func(self.data['X_test'])
+        answer = self.predict(result)
+        with open(path, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['id', 'label'])
+            for i in range(answer.shape[0]):
+                writer.writerow([i+1, answer[i][0]])
+
+
+dm = data_manager()
+dm.read('X_train', 'data/X_train')
+dm.read('Y_train', 'data/Y_train')
+dm.read('X_test', 'data/X_test')
+dm.cal_Rate()
+dm.write_file('output2.csv')
